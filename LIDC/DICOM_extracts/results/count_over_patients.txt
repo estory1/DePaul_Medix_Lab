@@ -1,0 +1,47 @@
+----- Manufacturer -----
+{
+    "GE MEDICAL SYSTEMS": 652, 
+    "Philips": 74, 
+    "SIEMENS": 197, 
+    "TOSHIBA": 67
+}
+----- ManufacturerModelName -----
+{
+    "Aquilion": 67, 
+    "Brilliance 16P": 54, 
+    "Brilliance 40": 9, 
+    "Brilliance 64": 5, 
+    "Brilliance16": 6, 
+    "Definition": 3, 
+    "Emotion 6": 29, 
+    "Emotion Duo": 1, 
+    "LightSpeed Plus": 56, 
+    "LightSpeed Power": 10, 
+    "LightSpeed Pro 16": 77, 
+    "LightSpeed QX/i": 89, 
+    "LightSpeed Ultra": 158, 
+    "LightSpeed VCT": 61, 
+    "LightSpeed16": 201, 
+    "Sensation 16": 112, 
+    "Sensation 64": 52
+}
+----- SliceThickness -----
+{
+    "0.59999999999999998": 6, 
+    "0.75": 30, 
+    "0.90000000000000002": 2, 
+    "1": 57, 
+    "1.25": 342, 
+    "1.5": 5, 
+    "2": 124, 
+    "2.5": 311, 
+    "3": 109, 
+    "4": 1, 
+    "5": 3
+}
+----- SmallestImagePixelValue -----
+{
+    "0": 28, 
+    "1": 1, 
+    "63488": 5
+}

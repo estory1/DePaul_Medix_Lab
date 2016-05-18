@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html; charset=windows-1252" http-equiv="content-type">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>c.elegans tracker - data browser</title>
+    
+    <!-- Library scripts, styles -->
+    <script src="lib/vendor/jquery-1.11.1.min.js"></script>
+    <link rel="stylesheet" href="lib/vendor/jquery-ui-1.11.2/jquery-ui.min.css">
+    <link rel="stylesheet" href="lib/vendor/jquery-ui-1.11.2/jquery-ui.structure.min.css">
+    <link rel="stylesheet" href="lib/vendor/jquery-ui-1.11.2/jquery-ui.theme.min.css">
+    <script src="lib/vendor/jquery-ui-1.11.2/jquery-ui.min.js"></script>
+    
+    <script src="lib/vendor/lodash-3.0.1.min.js"></script>
+
+    <link rel="stylesheet" href="lib/vendor/bootstrap/dist/css/bootstrap.min.css">
+    <script src="lib/vendor/bootstrap/dist/js/bootstrap.min.js"></script>
+
+    <link rel="stylesheet" href="lib/vendor/bootstrap_dropdowns_enhancement/dropdowns-enhancement.css">
+    <script src="lib/vendor/bootstrap_dropdowns_enhancement/dropdowns-enhancement.js"></script>  
+        
+    <script src="lib/vendor/d3/d3.min.js" charset="utf-8"></script>
+    <script src="lib/vendor/d3/d3.layout.js" charset="utf-8"></script>
+
+    <!--
+    <link rel="stylesheet" href="lib/vendor/rickshaw/rickshaw.min.css">
+    <script src="lib/vendor/rickshaw/rickshaw.min.js"></script>
+    -->
+    <link type="text/css" rel="stylesheet" href="lib/vendor/c3-0.4.9/c3.css">
+    <script src="lib/vendor/c3-0.4.9/c3.min.js"></script>
+
+
+    <!-- Custom scripts, styles -->
+    <link rel="stylesheet" type="text/css" href="main.css">
+
+    <!-- <script src="js/rickshawCharting.js"></script> -->
+    <script src="js/c3Charting.js"></script>
+    <script src="dataFileSet.js"></script>
+    <script src="js/basicStats.js"></script>
+
+    <!-- Data files metadata -->
+    <script src="dataFilesMetadataObjs.json"></script>
+    
+    <script>
+      /*
+        CONSTS
+      */
+      var stepSizePct = 0.1;
+
+      /**
+        Custom logging function.
+      */
+      function eslog(fn, msg)  {
+        console.log("[" + fn + "] " + msg);
+      }   
+
+
+      /**
+        Custom numeric formatter.
+      */
+      function formatTo3Decimals(num) { var fn = "formatTo3Decimals";
+        return parseFloat(num).toFixed(3);
+      }
+
+
+      /**
+        Computes and renders to the page basic stats about each of the enabled data sets' data series.
+      */
+      function computeAndRenderBasicStats(dataSetsToDisplay) { var fn = "computeAndRenderBasicStats";
+        $("#seriesStatsTbl").empty();
+
+        _.each(dataSetsToDisplay, function(ds) {
+          var seriesNames = getColNames(ds.dataSet.metadata);
+
+          // compute and render stats for each data series (dimension)
+          for (var i=0; i < seriesNames.length; i++) {
+            var Y = _.map(ds.filteredRowsWithoutNan, function(r) { return r[i]; });
+            var sumY = _.reduce(Y, function(rslt, y) { return rslt + y; });
+            var meanY = sumY / Y.length;
+
+            var min = formatTo3Decimals(_.min(Y));
+            var max = formatTo3Decimals(_.max(Y));
+            var mean = formatTo3Decimals(meanY);
+            var med = formatTo3Decimals(median(Y));
+            var stddev = formatTo3Decimals((sdAndSE(Y))[0]);
+            var stddevsq = formatTo3Decimals(variance(Y));
+            var snr = formatTo3Decimals(signalToNoiseRatio(Y));
+
+            $("#seriesStatsTbl").append('<tr> <td>'+ds.dataSet.metadata.name+'</td> <td>'+seriesNames[i]+'</td> <td>'+min+'</td> <td>'+max+'</td> <td>'+mean+'</td> <td>'+med+'</td> <td>'+stddev+'</td> <td>'+stddevsq+'</td> <td>'+snr+'</td> </tr>');
+          }
+        });
+      }
+
+
+      /**
+        Updates the user controls in response to a user action.
+      */
+      function updateUserControls(dataSets) { var fn = "updateUserControls";
+
+        // Find min/max time values for the enabled datasets.
+        var timeArr = 
+          _.reduce(
+            _.map(dataSets,
+              function(ds) { 
+                return _.map(ds.rowsWithoutNan, function(r) { return r[dataSet.metadata.timeSeriesFilterColIdx.time]; });
+              }
+            ),
+            function(retArr, currArr) {
+              return retArr ? retArr.concat(currArr) : [];
+            }
+          );
+
+        var mn = _.min(timeArr);
+        var mx = _.max(timeArr);
+        eslog(fn, "mn = " + mn + "; mx = " + mx);
+
+        // For each dataset, depending on the dataset type, update the type's slider range.
+        _.each(dataSets, function(ds) {
+          switch(ds.dataSet.metadata.type) {
+
+            case "movementFeatures":
+              // Find min/max frameID values for the enabled datasets.
+              var frameArr =
+                _.reduce(
+                  _.map(dataSets,
+                    function(ds) { 
+                      return _.map(ds.rowsWithoutNan, function(r) { return r[dataSet.metadata.timeSeriesFilterColIdx.frame]; });
+                    }
+                  ),
+                  function(retArr, currArr) {
+                    return retArr ? retArr.concat(currArr) : [];
+                  }
+                );
+              var mnf = _.min(frameArr);
+              var mxf = _.max(frameArr);
+              $("#frameControls").show();
+              updateSlider($("#frameSlider"), mnf, mxf, timeSeriesFilterDimType);
+              break;
+
+            case "binnedMF":
+            default:
+              $("#elapsedTimeSeriesUnit").html(ds.dataSet.metadata.timeSeriesUnit);
+              updateSlider($("#elapsedSlider"), mn, mx, timeSeriesFilterDimType);
+              $("#frameControls").hide();
+              break;
+          }
+        } );
+
+        // Now that we are displaying a dataset, enable the user to reset the chart to displaying the max window size for all enabled data sets.
+        $(".showMeEverything").show();
+      }
+
+
+      /**
+        Update the slider range, depending on slider type.
+      */
+      function updateSlider(jqElem, min, max, timeSeriesFilterDimType) { var fn = "updateSlider";
+        $(jqElem).attr('min', min);
+        $(jqElem).attr('max', max);
+        var step = (max - min) * stepSizePct;
+        $(jqElem).attr('step', step);
+
+        switch(timeSeriesFilterDimType) {
+          case "frame":
+            lastFrame.step = step;
+            break;
+          case "time":
+            lastElapsed.step = step;
+            break;
+        }
+
+        eslog(fn,
+          "min = " + $(jqElem).attr('min') +
+          "; max = " + $(jqElem).attr('max') +
+          "; step = " + $(jqElem).attr('step')        
+          );
+      }
+
+
+      /**
+        Returns an array of the datasets the user has selected.
+
+        Each returned dataset is filtered to fit within a user-specified window.
+      */
+      function getDatasetsToDisplay() { var fn = 'getDatasetsToDisplay';
+        return _.map(
+          _.filter(dataSets, function(ds) { return ds.enabled; }), function(dataSet) {
+
+          // ...where the original input file's is parsed and any rows having NaN values removed...
+          var rowsWithoutNan = parseDataCsv(dataSet);
+
+          // ...and then the time dimension is extracted...
+          var timeArr = _.map(rowsWithoutNan, function(r) { return r[dataSet.metadata.timeSeriesFilterColIdx[timeSeriesFilterDimType]]; });
+
+          // ...and the min/max of that time dimension is computed, depending on the type of dataset.
+          var timeRangeStartVal = parseFloat(
+            timeSeriesFilterDimType == "time" ? (lastElapsed.start >= 0 ? lastElapsed.start : _.min(timeArr)) : 
+            timeSeriesFilterDimType == "frame" ? (lastFrame.start >= 0 ? lastFrame.start : _.min(timeArr)) :
+            -1);
+          var timeRangeEndVal = parseFloat(
+            timeSeriesFilterDimType == "time" ? (lastElapsed.end >= 0 ? lastElapsed.end : _.max(timeArr)) : 
+            timeSeriesFilterDimType == "frame" ? (lastFrame.end >= 0 ? lastFrame.end : _.max(timeArr)) :
+            -1);
+          eslog(fn, "timeSeriesFilterDimType = " + timeSeriesFilterDimType + "; dataSet.metadata.type = " + dataSet.metadata.type + "; timeRangeStartVal = " + timeRangeStartVal, "; timeRangeEndVal = " + timeRangeEndVal);
+
+          // Then, filter the dataset and the time series to the user-selected window size.
+          filteredRowsWithoutNan = filterRows(dataSet, rowsWithoutNan, timeSeriesFilterDimType, timeRangeStartVal, timeRangeEndVal);
+          filteredTimeArr = _.map(filteredRowsWithoutNan, function(r) { return r[dataSet.metadata.timeSeriesFilterColIdx[timeSeriesFilterDimType]]; });
+
+          // And return a temporary structure to represent and contain the derived dataset we've parsed and filtered for this render.
+          return {
+            dataSet: dataSet,
+            rowsWithoutNan: rowsWithoutNan,
+            filteredRowsWithoutNan: filteredRowsWithoutNan,
+            filteredTimeArr: filteredTimeArr,
+            timeArr: timeArr,
+            timeRangeStartVal: timeRangeStartVal,
+            timeRangeEndVal: timeRangeEndVal
+          };
+        });
+      }
+
+
+      /**
+        Displays a chart for all enabled data sets.
+      */
+      function displayChart() { var fn = "displayChart";
+        // Get the set of datasets to display, filtered to the window the user wants.
+        var dataSetsToDisplay = getDatasetsToDisplay();
+        eslog(fn, "dataSetsToDisplay:");
+        console.log(dataSetsToDisplay);
+
+        // Update the user controls in response to the derived dataset.
+        updateUserControls(dataSetsToDisplay);
+        // Compute statistics on the derived dataset.
+        computeAndRenderBasicStats(dataSetsToDisplay);
+        // Chart the derived dataset.
+        c3Charting.drawMultiFileMultiLineChart("chart_container", dataSetsToDisplay, allHiddenSeries);
+        // Apply a click handler to the click event for each series.
+        applyCustomSeriesToggleClickHandler();
+      }
+
+
+      /**
+        Click handler for each series in a chart.
+      */
+      function applyCustomSeriesToggleClickHandler() {
+        // For all series legend entries...
+        $(".c3-legend-item-event").click(function() {
+          // Get its previous sibling element, which contains the text of the legend entry.
+          var jqPrev = $(this).prev();
+          // Get the display name for the dimension/column.
+          var colDisplayName = $(jqPrev).text();
+
+          // If the set of hidden series column display names contains the clicked element, then remove it...
+          if(_.includes(allHiddenSeries, colDisplayName)) { _.pull(allHiddenSeries, colDisplayName); }
+          // ...else, the set does not contain the clicked element's display name, so append it.
+          else { allHiddenSeries = allHiddenSeries.concat(colDisplayName); }
+        });
+      }
+
+
+      /**
+        Performs an AJAX GET on an input data file and caches it in memory.
+       
+          Pattern: Singleton.
+          If the file is already in an array of datasets, then don't load again, just load from the existing cache.
+      */
+      function loadDataAndRefreshChart(dataUrl, clickedElem) { var fn = "loadDataAndRefreshChart";
+        if(dataSets[dataUrl] != null && dataSets[dataUrl] != undefined) {
+            displayChart();
+        }
+        else {
+          // Load the CSV data.
+          $.get(dataUrl, function(csvData) {
+            dataSets[dataUrl] = {};
+            dataSet = dataSets[dataUrl];
+            dataSet.enabled = true;
+            dataSet.data = csvData;
+            dataSet.metadata = getDataFileMetadataObjByUrl(dataUrl);
+            displayChart();
+          })
+          .fail(function(e) { 
+            if(e.status == 404) { alert(e.statusText); }
+            else{ console.error(JSON.stringify(e)); }
+            if (clickedElem) { $(clickedElem).css('text-decoration', 'line-through'); }
+          });
+        }
+      }
+
+
+      /**
+        Returns the note string for the file dropdown.
+      */
+      function getNote(dataSetMetadata) { var fn = "getNote";
+        switch(dataSetMetadata.type) {
+          case "binnedMF":
+            return dataSetMetadata.note + " (" + dataSetMetadata.timeSeriesMax + "min)";
+          case "movementFeatures":
+            return dataSetMetadata.note + " (max frame ID: " + dataSetMetadata.timeSeriesMax + ")";
+          default:
+            return dataSetMetadata.note;
+        }
+      }
+
+
+      /**
+        Gets the file dropdown display string.
+      */
+      function getFileDisplayStr(metadataObj) {
+        return (metadataObj.name + " " + getNote(metadataObj));
+      }
+
+
+      /**
+        Gets the file dropdown's HTML for each file link.
+      */
+      function getFileLinkHtml(metadataObj) { var fn = "getFileLinkHtml"; 
+        return '<li><input class="aDataFile" data-href="' + metadataObj.href + '" type="radio" id="'+('rdoFile_'+metadataObj.href)+'" name="'+metadataObj.name+'" value="'+metadataObj.name+'"><label for="'+('rdoFile_'+metadataObj.href)+'">'+ (getFileDisplayStr(metadataObj)) +'</label></li>';
+      }
+
+
+      /**
+        Generates the elements in the file list.
+      */
+      function generateFileList() { var fn = "generateFileList";
+        $("#listFileDropdown").html(
+          _.reduce(dataFilesMetadataObjs, function(memo, obj) {
+              if (_.isObject(memo)) { return getFileLinkHtml(obj); }
+              else { return memo + getFileLinkHtml(obj); }
+            },
+            dataFilesMetadataObjs[0]
+          )
+        );
+      }
+
+
+      /**
+        On user tabs-out of a textbox, determine whether to update user controls, and update them if necessary...
+      */
+      function userParamFocusOut(jqStart, jqEnd, filterDimType, lastStateStruct) { var fn = "userParamFocusOut";
+        if ( lastStateStruct.start != $(jqStart).val() || lastStateStruct.end != $(jqEnd).val() ) {
+          eslog(fn, 'do stuff');
+          timeSeriesFilterDimType = filterDimType;
+          lastStateStruct.start = $(jqStart).val();
+          lastStateStruct.end = $(jqEnd).val();
+          console.log("lastStateStruct.start = " + lastStateStruct.start);
+          console.log("lastStateStruct.end = " + lastStateStruct.end);
+          if (lastUrlClicked) { loadDataAndRefreshChart(lastUrlClicked, null); }
+        }
+        else {
+          lastStateStruct.focusId = $(this).attr('id');
+        }
+      }
+
+
+      /** 
+        On page finished loading... (in case you're new to jQuery...)
+      */
+      $(document).ready(function() {
+        generateFileList();
+
+
+        /* Data file link click behavior */
+        // Assign click events to all data file links.
+        // Click handler handles displaying charts and singleton data-fetching on client-side.
+        $(".aDataFile").click(function() {
+          var clickedElem = $(this);
+
+          var dataUrl = ($(this)).attr("data-href");
+          lastUrlClicked = dataUrl;
+          console.log(dataUrl);
+          if(dataSets[dataUrl]) {
+            dataSets[dataUrl].enabled = !dataSets[dataUrl].enabled;
+
+            // TODO: fix this ugly hack around bootstrap-dropdown-enhancements not changing the file menu item styling properly onclick.
+            // NOTE: obviously, as-is, if the colors in the CSS class that assigns this are changed, these lines must be changed too.
+            var jqFileItemLbl = $("label[for='rdoFile_"+dataSets[dataUrl].metadata.href+"']");
+            $(jqFileItemLbl).css('color', (dataSets[dataUrl].enabled ? 'white' : 'black') );
+            $(jqFileItemLbl).css('background-color', (dataSets[dataUrl].enabled ? '#428bca' : 'white') );
+            
+            var dataSetsEnabled = _.filter(dataSets, function(ds) { return ds.enabled; });
+            var fileDropdownTitleText = dataSetsEnabled.length >= 4
+              ? dataSetsEnabled.length + " selected"
+              : _.reduce(_.map(dataSetsEnabled, function(ds) { return getFileDisplayStr(ds.metadata); }), function(accum, val) { return accum + ", " + val; });
+            $("#fileBtn").text(fileDropdownTitleText);
+          }
+          $("#fileDropdownTitle").text($(clickedElem).text());
+
+          loadDataAndRefreshChart(dataUrl, clickedElem);
+        });
+
+        /* Focus behavior */
+        $("#frameStart, #frameEnd").focusin(function() {
+          lastFrame.focusId = $(this).attr('id');
+          console.log('frame focusin');
+        });
+
+        $("#frameStart, #frameEnd").focusout(function() {
+          userParamFocusOut($("#frameStart"), $("#frameEnd"), "frame", lastFrame);
+        });
+
+        $("#elapsedStart, #elapsedEnd").focusin(function() {
+          lastElapsed.focusId = $(this).attr('id');
+          console.log('elapsed focusin');
+        });
+
+        $("#elapsedStart, #elapsedEnd").focusout(function() {
+          userParamFocusOut($("#elapsedStart"), $("#elapsedEnd"), "time", lastElapsed);
+        });
+
+        // Assigns the window bounds to min/max for all displayed datasets.
+        $(".showMeEverything").click(function() { var fn = "jq:.showMeEverything";
+          if(timeSeriesFilterDimType == "frame") {
+            $("#frameStart").val(0);
+            $("#frameEnd").val(_.max(_.pluck(_.pluck(_.filter(dataSets, function(ds) { return ds.metadata.type == "movementFeatures"; }), 'metadata'), 'timeSeriesMax')));
+            userParamFocusOut($("#frameStart"), $("#frameEnd"), "time", lastFrame);
+            $("#frameSlider").val(0);
+          }
+          if(timeSeriesFilterDimType == "time") {
+            $("#elapsedStart").val(0);
+            $("#elapsedEnd").val(_.max(_.pluck(_.pluck(_.filter(dataSets, function(ds) { return ds.metadata.type == "binnedMF"; }), 'metadata'), 'timeSeriesMax')));
+            userParamFocusOut($("#elapsedStart"), $("#elapsedEnd"), "time", lastElapsed);
+            $("#elapsedSlider").val(0);
+          }
+        });
+
+        /* Slider behavior */
+        $("#frameSlider").on('change', function() {
+          console.log('frameSlider changed');
+          var start = parseFloat($(this).val());
+          var step = parseFloat($(this).attr('step'));
+          var end = start + step;
+          console.log("frameSlider: end = " + end + "; start = " + start + "; step = " + step);
+          $("#frameStart").val(start);
+          $("#frameEnd").val(end);
+          userParamFocusOut($("#frameStart"), $("#frameEnd"), "frame", lastFrame);
+        });
+
+        $("#elapsedSlider").on('change', function() {
+          console.log('elapsedSlider changed');
+          var start = parseFloat($(this).val());
+          var step = parseFloat($(this).attr('step'));
+          var end = start + step;
+          console.log("elapsedSlider: end = " + end + "; start = " + start + "; step = " + step);
+          $("#elapsedStart").val(start);
+          $("#elapsedEnd").val(end);
+          userParamFocusOut($("#elapsedStart"), $("#elapsedEnd"), "time", lastElapsed);
+        });
+
+      });
+
+
+      // state variables... ugh.
+      var dataSets = {};
+      var lastUrlClicked = null;
+      var timeSeriesFilterDimType = "time";
+      var lastElapsed = {
+        focusId: null,
+        start: -1,
+        end: -1
+      };
+      var lastFrame = {
+        focusId: null,
+        start: -1,
+        end: -1        
+      };
+      var allHiddenSeries = [];
+        
+    </script>
+
+
+  </head>
+  <body>
+    
+    <div class="col-md-12">
+      
+      <div id="container-nav" class="row">
+        
+        <div id="fileList" class="col-sm-2">
+          <div id="container-fileDropdown">
+
+            <!-- Single button -->
+            <div class="btn-group">
+              <button id="fileBtn" class="btn btn-primary dropdown-toggle" data-toggle="dropdown">
+                Choose file(s) <span class="caret"></span>
+              </button>
+              <ul class="dropdown-menu" id="listFileDropdown"></ul>
+            </div>
+
+          </div>
+        </div>
+
+        <div style="text-align: center;">
+          <h3>Data Detail</h3>
+          
+          <div id="frameControls">
+            Frame ID:
+            start:<input id="frameStart" step="300" name="frameStart" type="number">
+            end:<input id="frameEnd" step="300" name="frameEnd" type="number">
+            <button id="frameShowMeEverything" class="btn btn-primary showMeEverything" style="display: none;">Show full series<br />for selected datasets</button>
+            <input id="frameSlider" type="range" min="0" max="32400" step="60" value="1" />
+            <br />
+          </div>
+          
+          <div id="elapsedControls">
+            Elapsed time since start (<span id="elapsedTimeSeriesUnit"></span>):
+            start:<input id="elapsedStart" step="10" name="elapsedStart" type="number">
+            end:<input id="elapsedEnd" step="10" name="elapsedEnd" type="number">
+            <button id="elapsedShowMeEverything" class="btn btn-primary showMeEverything" style="display: none;">Show full series<br />for selected datasets</button>
+            <input id="elapsedSlider" type="range" min="0" max="32400" step="1" value="1" />
+            <br />
+          </div>
+
+          <br />
+        
+        </div>
+
+        <div id="basicStats">
+          <table style="width: 100%">
+            <thead>
+              <td>Trial: Data Set</td><td>Dimension</td><td>Min</td><td>Max</td><td>Mean</td><td>Median</td><td>Std Dev</td><td>Variance</td><td>Signal:noise</td>
+            </thead>
+
+            <tbody id="seriesStatsTbl">
+            </tbody>
+          </table>
+
+         </div>
+
+      </div>
+
+
+      <div id="container-chart" class="row">
+        <div>
+          <div> </div>
+          <div> </div>          
+
+          <!-- Main chart -->
+          <div id="contentMain">
+            <div id="chart_container">
+              <div id="y_axis"></div>
+              <div id="chart"></div>
+              <div id="legend"></div>
+            </div>
+            
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </body>
+</html>
