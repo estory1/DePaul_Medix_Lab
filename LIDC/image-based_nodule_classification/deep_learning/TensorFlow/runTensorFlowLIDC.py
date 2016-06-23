@@ -15,7 +15,8 @@
 # MNIST image data: if necessary, download first, then gunzip and read.
 # mnist = input_data.read_data_sets(folder_path_to_mnist_data, one_hot=True)
 
-import input_data_LIDC
+# import input_data_LIDC
+import input_data_LIDC_probabilistic_labels as input_data_LIDC
 import numpy as np
 import math
 
@@ -28,7 +29,7 @@ import random
 
 ### Define hyperparmameters variables & functions.
 batch_size = 10
-nIters = 20000
+nIters = 100 # 20000
 validation_accuracy_min_cutoff = 0.99
 learning_rate = 0.2
 
@@ -92,17 +93,18 @@ learning_rate = 0.2
 
 
 # # USE FULL DATASET.
-pickle_file_name = "Evans-MacBook-Pro.local-resized_images-32x32.tensorflow.pickle"
+pickle_file_name = "Evans-MacBook-Pro.local-resized_images-32x32-probabilistic_labels.tensorflow.pickle"
 if os.path.isfile(pickle_file_name):
   input_data_LIDC.esprint("Unpickling: " + pickle_file_name)
   with open(pickle_file_name, "rb") as pickle_file:
     dataset_input = pickle.load(pickle_file)
 else:
+    # '../../../LIDC_Complete_20141106/Extracts/master_join4.csv',
   dataset_input = input_data_LIDC.read_data_sets(
-    "../data/LIDC/resized_images-32x32/",
+    "../data/LIDC/resized_images-32x32",
     "*.tiff",
-    '../../../LIDC_Complete_20141106/Extracts/master_join4.csv',
-    '../../../LIDC_Complete_20141106/Extracts/DICOM_metadata_extracts/',
+    '../data/LIDC/LIDC_DL-probabilistic_labels.csv',
+    '../../../LIDC_Complete_20141106/Extracts/DICOM_metadata_extracts',
     "*.csv")
   input_data_LIDC.esprint("Pickling: " + pickle_file_name)
   with open(pickle_file_name, "wb") as pickle_file:
@@ -216,11 +218,12 @@ if nan_in_labels_test:
 
 import tensorflow as tf
 
-# sess = tf.InteractiveSession()
 num_cpu_cores = max(1, multiprocessing.cpu_count())
-sess = tf.Session(config=tf.ConfigProto(inter_op_parallelism_threads=num_cpu_cores,
-                   intra_op_parallelism_threads=num_cpu_cores))
+# sess = tf.Session(config=tf.ConfigProto(inter_op_parallelism_threads=num_cpu_cores,
+#                    intra_op_parallelism_threads=num_cpu_cores))
 
+sess = tf.InteractiveSession()
+  
 x = tf.placeholder("float", shape = [None, X_len])
 y_ = tf.placeholder("float", shape = [None, y_len])
 
@@ -341,8 +344,22 @@ h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
 W_fc2 = weight_variable([1024, y_len])
 b_fc2 = bias_variable([y_len])
 
+# estory: Trying to print Tensor values during graph execution...: http://stackoverflow.com/questions/33633370/how-to-print-the-value-of-a-tensor-object-in-tensorflow
+# estory: This works: http://stackoverflow.com/a/36296783
+# # Some tensor we want to print the value of
+# a = tf.constant([1.0, 3.0])
+# # Add print operation
+# a = tf.Print(a, [a], message="This is a: ")
+# # Add more elements of the graph using a
+# b = tf.add(a, a).eval()
+
+# estory: ...So why not this?
+# a = tf.Print(W_fc2, [W_fc2], message="W_fc2: ")
+# b = tf.add(a, a).eval()
+
 # Run softmax over the dropout layer result for this layer's weights.
 y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
+
 
 
 
@@ -376,3 +393,9 @@ for i in range(nIters):
 # print "test accuracy %g" % accuracy.eval(feed_dict = { x: dataset.test.images, y_: dataset.test.labels, keep_prob: 1.0 })
 input_data_LIDC.esprint("test accuracy %g" % accuracy.eval(session=sess, feed_dict = { x: dataset.test.images, y_: dataset.test.labels, keep_prob: 1.0 }))
 
+
+# estory: To print a variable (NOT a tensor! Seems it must be a vector or scalar.)
+print(sess.run(W))
+# estory: A more-baroque, BUT FULLY-PRINTING, way to print a non-tensor variable.
+# a = tf.Print(W, [W], first_n=-1, summarize=10000, message="W: ")
+# tf.add(a, a).eval()
