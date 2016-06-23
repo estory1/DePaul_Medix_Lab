@@ -3,13 +3,13 @@
 # 20151110
 # Evan Story (estory1@gmail.com)
 #
-# Implements Google's TensorFlow beginner's tutorial here: http://www.tensorflow.org/tutorials/mnist/pros/index.md
+# To run with logging to a new file in the "output/" folder: simply execute:
+#
+#     ./run.bash
+
+# Builds upon Google's MNIST CDNN tutorial: http://www.tensorflow.org/tutorials/mnist/pros/index.md
 
 # import input_data   # src: https://tensorflow.googlesource.com/tensorflow/+/master/tensorflow/g3doc/tutorials/mnist/input_data.py
-
-# To run with logging: ./runTensorFlowLIDC.py 2>&1 | tee output/`date +%Y%m%d-%H%M%S`-runTensorFlowLIDC.out.txt
-
-
 # folder_path_to_mnist_data = "/Users/estory/Documents/syncable/School/DePaul/CSC578/final_proj/data/mnist/yann.lecun.com/exdb/mnist/"
 
 # MNIST image data: if necessary, download first, then gunzip and read.
@@ -25,13 +25,23 @@ import pickle
 
 import multiprocessing
 import random
+import json
+import itertools
+import tensorflow as tf
+
+
+# Read file paths, image attrs from a config file. (TODO: could determine input sizes from input.)
+cfg = None
+input_data_LIDC.esprint("Reading configuration...")
+with open('runTensorFlowLIDC.config.json', 'r') as f:
+  cfg = json.load(f)
 
 
 ### Define hyperparmameters variables & functions.
-batch_size = 10
-nIters = 100 # 20000
-validation_accuracy_min_cutoff = 0.99
-learning_rate = 0.2
+batch_size = cfg["batch_size"]
+nIters = cfg["num_iterations"]
+validation_accuracy_min_cutoff = cfg["validation_accuracy_min_cutoff"]
+learning_rate = cfg["learning_rate"]
 
 
 
@@ -48,72 +58,30 @@ learning_rate = 0.2
 # y_len = 5
 
 
-# # # First 30 of the 236^2 crops.
-# pickle_file_name = "Evans-MacBook-Pro.local-resized_images-236x236-first30.tensorflow.pickle"
-# if os.path.isfile(pickle_file_name):
-  # input_data_LIDC.esprint("Unpickling: " + pickle_file_name)
-  # with open(pickle_file_name, "rb") as pickle_file:
-  #   dataset_input = pickle.load(pickle_file)
-# else:
-#   dataset_input = input_data_LIDC.read_data_sets(
-#     "../data/LIDC/resized_images-236x236-first30/",    # "../data/LIDC/resized_images/"  
-#     "*.tiff",
-#     '/Users/estory/Documents/syncable/School/DePaul/research/LIDC_Complete_20141106/Extracts/master_join4.csv',
-#     '/Users/estory/Documents/syncable/School/DePaul/research/LIDC_Complete_20141106/Extracts/DICOM_metadata_extracts/',
-#     "*.csv")   # "*.csv"
-  # input_data_LIDC.esprint("Pickling: " + pickle_file_name)
-  # with open(pickle_file_name, "wb") as pickle_file:
-  #   pickle.dump(dataset_input, pickle_file)
-# img_px_len_x = 236
-# img_px_len_y = img_px_len_x
-# X_len = img_px_len_x * img_px_len_y
-# y_len = 5
 
-
-# # # USE FULL DATASET.
-# pickle_file_name = "Evans-MacBook-Pro.local-resized_images-236x236.tensorflow.pickle"
-# if os.path.isfile(pickle_file_name):
-#   input_data_LIDC.esprint("Unpickling: " + pickle_file_name)
-#   with open(pickle_file_name, "rb") as pickle_file:
-#     dataset_input = pickle.load(pickle_file)
-# else:
-#   dataset_input = input_data_LIDC.read_data_sets(
-#     "../data/LIDC/resized_images-236x236/",
-#     "*.tiff",
-#     '../../../LIDC_Complete_20141106/Extracts/master_join4.csv',
-#     '../../../LIDC_Complete_20141106/Extracts/DICOM_metadata_extracts/',
-#     "*.csv")
-#   input_data_LIDC.esprint("Pickling: " + pickle_file_name)
-#   with open(pickle_file_name, "wb") as pickle_file:
-#     pickle.dump(dataset_input, pickle_file)
-# img_px_len_x = 236
-# img_px_len_y = img_px_len_x
-# X_len = img_px_len_x * img_px_len_y
-# y_len = 5
-
-
-# # USE FULL DATASET.
-pickle_file_name = "Evans-MacBook-Pro.local-resized_images-32x32-probabilistic_labels.tensorflow.pickle"
+### Read LIDC images and labels ###
+# Memoization: If we previously joined images to malignancy values and saved the results to a pickle file, then load that pickle file.
+pickle_file_name = cfg["pickle_file_name"]
 if os.path.isfile(pickle_file_name):
   input_data_LIDC.esprint("Unpickling: " + pickle_file_name)
   with open(pickle_file_name, "rb") as pickle_file:
     dataset_input = pickle.load(pickle_file)
+# Else, we haven't computed join, so let's compute it and create the pickle file. This will take a while and use all your CPU cores.
 else:
-    # '../../../LIDC_Complete_20141106/Extracts/master_join4.csv',
   dataset_input = input_data_LIDC.read_data_sets(
-    "../data/LIDC/resized_images-32x32",
-    "*.tiff",
-    '../data/LIDC/LIDC_DL-probabilistic_labels.csv',
-    '../../../LIDC_Complete_20141106/Extracts/DICOM_metadata_extracts',
-    "*.csv")
+    cfg["images_dir_path"],
+    cfg["images_file_glob"],
+    cfg["master_join4_path"],
+    cfg["DICOM_metadata_extracts_dir_path"],
+    cfg["DICOM_metadata_extracts_file_glob"])
   input_data_LIDC.esprint("Pickling: " + pickle_file_name)
   with open(pickle_file_name, "wb") as pickle_file:
     pickle.dump(dataset_input, pickle_file)
-img_px_len_x = 32
+# Specify the input characteristics for samples (X) and labels (y).
+img_px_len_x = cfg["image_len_x"]
 img_px_len_y = img_px_len_x
 X_len = img_px_len_x * img_px_len_y
-y_len = 5
-
+y_len = cfg["y_len"]
 
 
 
@@ -123,40 +91,48 @@ train_images, train_labels = dataset_input[0]
 validation_images, validation_labels = dataset_input[1]
 test_images, test_labels = dataset_input[2]
 
-# 20160104: malignancy binning in [1,3] rather than [1,5]
-def compare_arrays_with_order(a,b):
-  # print a
-  # print b
-  for i,j in zip(a,b):
-    if i != j:
-      return False
-  return True
-def map_malignancy(malignancy_rating):
-  if compare_arrays_with_order(malignancy_rating, [1,0,0,0,0]) or compare_arrays_with_order(malignancy_rating, [0,1,0,0,0]):
-    return [1, 0, 0]
-  elif compare_arrays_with_order(malignancy_rating, [0,0,1,0,0]):
-    return [0, 1, 0]
-  else:
-    return [0, 0, 1]
-train_labels = [map_malignancy(l) for l in train_labels]
-validation_labels = [map_malignancy(l) for l in validation_labels]
-test_labels = [map_malignancy(l) for l in test_labels]
-y_len = 3
+
+# 20160104: malignancy binning (optional).
+if cfg["map_malignancy_to_3_bins"] == True:
+  input_data_LIDC.esprint("Binning malignancy labels into 3 possible states.")
+  def compare_arrays_with_order(a,b):
+    # print a
+    # print b
+    for i,j in zip(a,b):
+      if i != j:
+        return False
+    return True
+  def map_malignancy(malignancy_rating):
+    if compare_arrays_with_order(malignancy_rating, [1,0,0,0,0]) or compare_arrays_with_order(malignancy_rating, [0,1,0,0,0]):
+      return [1, 0, 0]
+    elif compare_arrays_with_order(malignancy_rating, [0,0,1,0,0]):
+      return [0, 1, 0]
+    else:
+      return [0, 0, 1]
+  train_labels = [map_malignancy(l) for l in train_labels]
+  validation_labels = [map_malignancy(l) for l in validation_labels]
+  test_labels = [map_malignancy(l) for l in test_labels]
+  y_len = 3
 
 
-import itertools
+
+# Make a list of images from the existing sets.
 images = list(itertools.chain(train_images, validation_images, test_images))
+# Make a list of labels from the existing sets.
 labels = list(itertools.chain(train_labels, validation_labels, test_labels))
 
+# Merge the images and labels into (image, label) pairs, in order.
 combined = zip(images, labels)
+# Randomize the pairs.
 random.shuffle(combined)
+# Extract the (image, label) pairs into separate lists.
 images[:], labels[:] = zip(*combined)
 
 # Then, re-split the set.
 n = np.shape(images)[0]
 
-TRAIN_SIZE = int(math.floor(n * 0.7))
-VALIDATION_SIZE = int(math.floor(TRAIN_SIZE * 0.1))
+TRAIN_SIZE = int(math.floor(n * cfg["training_split_pct"]))
+VALIDATION_SIZE = int(math.floor(TRAIN_SIZE * cfg["validation_split_pct"]))
 
 train_images = np.array(images[0:(TRAIN_SIZE - VALIDATION_SIZE)])
 train_labels = np.array(labels[0:(TRAIN_SIZE - VALIDATION_SIZE)])
@@ -167,16 +143,11 @@ validation_labels = np.array(labels[(TRAIN_SIZE - VALIDATION_SIZE):TRAIN_SIZE])
 test_images = np.array(images[TRAIN_SIZE:])
 test_labels = np.array(labels[TRAIN_SIZE:])
 
-
-# Reconstitute data into DataSet objects, whose properties are referenced during training.
-# train_images, train_labels = dataset_input[0]
-# validation_images, validation_labels = dataset_input[1]
-# test_images, test_labels = dataset_input[2]
-
 print "train (raw): " + str(len(train_images)) + " : " + str(len(train_labels))
 print "validation (raw): " + str(len(validation_images)) + " : " + str(len(validation_labels))
 print "test (raw): " + str(len(test_images)) + " : " + str(len(test_labels))
 
+# Reconstitute data into DataSet objects, whose properties are referenced during training.
 dataset = input_data_LIDC.DataSets()
 dataset.train = input_data_LIDC.DataSet(train_images, train_labels)
 dataset.validation = input_data_LIDC.DataSet(validation_images, validation_labels)
@@ -216,7 +187,7 @@ if nan_in_labels_test:
 
 
 
-import tensorflow as tf
+### Now do CDNN modeling. ###
 
 num_cpu_cores = max(1, multiprocessing.cpu_count())
 # sess = tf.Session(config=tf.ConfigProto(inter_op_parallelism_threads=num_cpu_cores,
@@ -362,9 +333,8 @@ y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
 
 
 
-
 ### Training and evaluation.
-# Instead of SGD, here we'll use the "ADAM" optimizer. (Google says it's "more sophisticated".)
+# Instead of SGD, here we'll use the "ADAM" optimizer. (Google says it's "more sophisticated". Need to understand why...)
 #
 # Logging occurs every 100th step. Dropout rate is controlled by the keep_prob parameter in feed_dict.
 cross_entropy = -tf.reduce_sum(y_ * tf.log(y_conv))
@@ -379,7 +349,7 @@ for i in range(nIters):
   train_batch = dataset.train.next_batch(batch_size)
   validation_batch = dataset.validation.next_batch(batch_size)
 
-  if i % 100 == 0:
+  if i % cfg["num_iters_per_epoch"] == 0:
     train_accuracy = accuracy.eval(session=sess, feed_dict = { x: train_batch[0], y_: train_batch[1], keep_prob: 1.0 })
     input_data_LIDC.esprint("step %d, training accuracy %g" % (i, train_accuracy))
 
