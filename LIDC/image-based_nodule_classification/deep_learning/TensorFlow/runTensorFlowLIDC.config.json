@@ -1,0 +1,18 @@
+{
+  "pickle_file_name": "Evans-MacBook-Pro.local-resized_images-32x32.tensorflow.pickle",
+  "master_join4_path": "../../data/LIDC/labels_and_features/master_join4.csv",
+  "images_dir_path": "../../data/LIDC/resized_images-32x32/",
+  "images_file_glob": "*.tiff",
+  "DICOM_metadata_extracts_dir_path": "../../data/LIDC/DICOM_metadata_extracts/",
+  "DICOM_metadata_extracts_file_glob": "*.csv",
+  "image_len_x": 32,
+  "y_len": 5,
+  "map_malignancy_to_3_bins": false,
+  "training_split_pct": 0.7,
+  "validation_split_pct": 0.1,
+  "batch_size": 10,
+  "num_iterations": 20000,
+  "num_iters_per_epoch": 100,
+  "validation_accuracy_min_cutoff": 0.99,
+  "learning_rate": 0.2
+}
